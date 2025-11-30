@@ -232,8 +232,7 @@ function loadSettings() {
     volumeSlider.value = storedVolume;
     volumeValueEl.textContent = `${Math.round(parseFloat(storedVolume) * 100)}%`;
     
-    webhookUrl = localStorage.getItem('moneyBoxWebhookUrl') || '';
-    webhookUrlInput.value = webhookUrl;
+    // ⚠️ تم إزالة تحميل الـ Webhook من localStorage
 }
 
 function applyColorTheme(theme) {
@@ -274,10 +273,12 @@ function updateMusicButton(isPlaying, shouldPlayPause) {
 
 // 🌐 دالة الحفظ والمزامنة السحابية الجديدة (PUT) 
 async function syncDataToCloud() {
+    // ⚠️⚠️ تم إضافة رابط الـ Webhook إلى بيانات الحفظ السحابي ⚠️⚠️
     const dataToSave = {
         transactions: transactions,
         wishlist: wishlist,
-        targetAmount: TARGET_AMOUNT_ILS
+        targetAmount: TARGET_AMOUNT_ILS,
+        webhookUrl: webhookUrl // ⬅️⬅️ NEW: حفظ رابط الويب هوك سحابياً
     };
 
     const response = await fetch(JSON_BIN_URL, {
@@ -323,6 +324,10 @@ async function loadData() {
             // تحديث الهدف من السحابة، إذا لم يكن موجوداً نستخدم القيمة الافتراضية
             TARGET_AMOUNT_ILS = parseFloat(cloudData.targetAmount) || TARGET_AMOUNT_ILS; 
             
+            // ⬅️⬅️ NEW: تحميل رابط الويب هوك من السحابة
+            webhookUrl = cloudData.webhookUrl || ''; 
+            webhookUrlInput.value = webhookUrl; // تحديث حقل الإدخال في الواجهة
+            
             // تحديث الهدف في localStorage أيضاً (لتحديث حقل الإدخال)
             saveTarget(TARGET_AMOUNT_ILS); 
             
@@ -332,25 +337,25 @@ async function loadData() {
             // إذا فشل التحميل، نستخدم البيانات الأولية
              if (transactions.length === 0) {
                  transactions.push({
-                    id: Date.now(),
-                    date: 'تحميل أولي',
-                    amountILS: INITIAL_BALANCE_ILS,
-                    amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
-                    note: 'رصيد أولي'
-                });
-            }
+                     id: Date.now(),
+                     date: 'تحميل أولي',
+                     amountILS: INITIAL_BALANCE_ILS,
+                     amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
+                     note: 'رصيد أولي'
+                 });
+             }
         }
     } catch (error) {
         console.error('Network or parsing error loading data:', error);
         // في حالة وجود خطأ في الشبكة، استخدم البيانات الأولية
         if (transactions.length === 0) {
              transactions.push({
-                id: Date.now(),
-                date: 'تحميل أولي',
-                amountILS: INITIAL_BALANCE_ILS,
-                amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
-                note: 'رصيد أولي (خطأ سحابي)'
-            });
+                 id: Date.now(),
+                 date: 'تحميل أولي',
+                 amountILS: INITIAL_BALANCE_ILS,
+                 amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
+                 note: 'رصيد أولي (خطأ سحابي)'
+             });
         }
     }
     
@@ -468,7 +473,6 @@ async function resetAllData() {
     // 1. مسح البيانات المحلية الأخرى (التي لا تتم مزامنتها)
     localStorage.removeItem('lastDepositCheck');
     localStorage.removeItem('moneyBoxTarget'); 
-    localStorage.removeItem('moneyBoxWebhookUrl'); 
     localStorage.removeItem('goalReached');
     localStorage.removeItem('cashDenominations'); // حذف الفئات النقدية 
 
@@ -499,7 +503,7 @@ async function resetAllData() {
         renderDenominationsDisplay(); 
         alert('تم إعادة ضبط جميع البيانات بنجاح ومزامنتها على جميع الأجهزة.');
     } else {
-         alert('⚠️ فشلت عملية إعادة التعيين على السحابة. يرجى مراجعة إعدادات JSON Bin والمحاولة مجدداً.');
+        alert('⚠️ فشلت عملية إعادة التعيين على السحابة. يرجى مراجعة إعدادات JSON Bin والمحاولة مجدداً.');
     }
 }
 
@@ -586,7 +590,7 @@ function updateBalanceDisplay() {
         sendDiscordNotification('GOAL_REACHED', { currentTotal: totalIls, target: TARGET_AMOUNT_ILS });
         localStorage.setItem('goalReached', TARGET_AMOUNT_ILS.toFixed(2)); 
     } else if (totalIls < TARGET_AMOUNT_ILS) {
-          localStorage.removeItem('goalReached');
+         localStorage.removeItem('goalReached');
     }
 
     checkTarget(totalIls);
@@ -820,44 +824,43 @@ window.addEventListener('click', (e) => {
 addTransactionForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     e.preventDefault(); 
     const amountIls = parseFloat(newAmountInput.value);
-    const noteText = transactionNoteInput.value.trim(); 
-    
+    const note = transactionNoteInput.value.trim() || 'إيداع نقدي';
+
     if (isNaN(amountIls) || amountIls <= 0) {
-        alert('الرجاء إدخال مبلغ صحيح وموجب.');
+        alert('الرجاء إدخال مبلغ صحيح.');
         return;
     }
     
-    // استدعاء دالة إضافة الفئات (حفظ محلي فقط)
-    const addedDenominations = addAmountToDenominations(amountIls); 
+    const addedDenominations = addAmountToDenominations(amountIls); // إضافة الفئات 
 
     const newTransaction = {
         id: Date.now(),
         date: new Date().toLocaleTimeString('ar-EG') + ' ' + new Date().toLocaleDateString('ar-EG'),
         amountILS: amountIls,
         amountUSD: convertIlsToUsd(amountIls),
-        note: noteText,
-        denominations: addedDenominations // حفظ الفئات التي تم إيداعها 
+        note: note,
+        denominations: addedDenominations // حفظ الفئات 
     };
 
     transactions.push(newTransaction);
     await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
-    renderTransaction(newTransaction);
-    const currentTotal = calculateTotalBalance();
-    updateBalanceDisplay(); 
-    
-    sendDiscordNotification('ADD', { amount: amountIls, note: noteText, addedDenominations: addedDenominations }); 
-    
+
     newAmountInput.value = '';
     transactionNoteInput.value = '';
+    
+    renderTransaction(newTransaction);
+    updateBalanceDisplay();
+
+    sendDiscordNotification('ADD', { amount: amountIls, note: note, addedDenominations: addedDenominations });
 });
 
-// معالج إضافة أمنية 
+
 addWishForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     e.preventDefault();
     const name = wishItemNameInput.value.trim();
-    const priceIls = parseFloat(wishItemPriceInput.value);
+    const priceILS = parseFloat(wishItemPriceInput.value);
 
-    if (!name || isNaN(priceIls) || priceIls <= 0) {
+    if (!name || isNaN(priceILS) || priceILS <= 0) {
         alert('الرجاء إدخال اسم وسعر صحيح للأمنية.');
         return;
     }
@@ -865,83 +868,95 @@ addWishForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     const newWish = {
         id: Date.now(),
         name: name,
-        priceILS: priceIls,
-        priceUSD: convertIlsToUsd(priceIls)
+        priceILS: priceILS,
+        priceUSD: convertIlsToUsd(priceILS)
     };
 
     wishlist.push(newWish);
     await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
-    renderWishlist(calculateTotalBalance());
-    updateWishlistSummary(calculateTotalBalance());
-    
-    sendDiscordNotification('ADD_WISH', { name: name, price: priceIls });
 
     wishItemNameInput.value = '';
     wishItemPriceInput.value = '';
+
+    renderWishlist(calculateTotalBalance());
+    updateWishlistSummary(calculateTotalBalance());
+    sendDiscordNotification('ADD_WISH', { name: name, price: priceILS });
 });
 
-// معالج تغيير الهدف
 changeTargetForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     e.preventDefault();
     const newTarget = parseFloat(newTargetAmountInput.value);
-    
+
     if (isNaN(newTarget) || newTarget <= 0) {
-        alert('الرجاء إدخال مبلغ هدف صحيح وموجب.');
+        alert('الرجاء إدخال قيمة هدف صحيحة.');
         return;
     }
-
+    
     const oldTarget = TARGET_AMOUNT_ILS;
-    saveTarget(newTarget);
-    await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
+
+    saveTarget(newTarget); // تحديث القيمة في المتغيرات و localStorage
+    
+    // يجب مزامنة الهدف الجديد سحابياً
+    await syncDataToCloud();
+
     updateBalanceDisplay();
     newTargetAmountInput.value = '';
-
+    
     sendDiscordNotification('TARGET_CHANGED', { oldTarget: oldTarget, newTarget: newTarget });
 });
 
 resetDataButton.addEventListener('click', resetAllData);
 
-// 🛠️ معالج زر تشغيل الموسيقى
-toggleMusicButton.addEventListener('click', () => {
-    const isPlaying = !musicElement.paused;
-    updateMusicButton(!isPlaying, true);
+
+// 🆕 معالج حفظ رابط الـ Webhook (حفظ سحابي) 🆕
+saveWebhookButton.addEventListener('click', async () => {
+    const newWebhookUrl = webhookUrlInput.value.trim();
+    
+    if (!newWebhookUrl) {
+        alert('الرجاء إدخال رابط Webhook صالح.');
+        return;
+    }
+    
+    webhookUrl = newWebhookUrl;
+    
+    // حفظ رابط الـ Webhook سحابياً عبر دالة المزامنة
+    const success = await syncDataToCloud(); 
+
+    if (success) {
+        alert('تم حفظ رابط الـ Webhook بنجاح ومزامنته على جميع الأجهزة.');
+    } else {
+        alert('⚠️ فشل حفظ رابط الـ Webhook على السحابة. يرجى مراجعة console.');
+    }
 });
 
-// 🛠️ معالج شريط التحكم بالصوت
-volumeSlider.addEventListener('input', (e) => {
-    const newVolume = parseFloat(e.target.value);
-    musicElement.volume = newVolume;
-    localStorage.setItem('moneyBoxVolume', newVolume);
-    volumeValueEl.textContent = `${Math.round(newVolume * 100)}%`;
-});
 
-// 🛠️ معالج حفظ Webhook
-saveWebhookButton.addEventListener('click', () => {
-    webhookUrl = webhookUrlInput.value.trim();
-    localStorage.setItem('moneyBoxWebhookUrl', webhookUrl);
-    alert('تم حفظ رابط Webhook بنجاح.');
-});
-
-// 🛠️ معالج تغيير لون الخلفية
+// معالج تغيير لون الخلفية
 bgColorSelect.addEventListener('change', (e) => {
     applyColorTheme(e.target.value);
 });
 
+// معالج تشغيل/إيقاف الموسيقى
+toggleMusicButton.addEventListener('click', () => {
+    const isPlaying = musicElement.paused;
+    updateMusicButton(isPlaying, true);
+});
+
+// معالج تغيير مستوى الصوت
+volumeSlider.addEventListener('input', () => {
+    musicElement.volume = volumeSlider.value;
+    volumeValueEl.textContent = `${Math.round(parseFloat(volumeSlider.value) * 100)}%`;
+    localStorage.setItem('moneyBoxVolume', volumeSlider.value);
+});
+
 
 // ==========================================================
-// وظيفة التهيئة (Initialization)
+// التهيئية (Initialization)
 // ==========================================================
 
-async function init() { // ⬅️ أصبحت async
-    await loadData(); // ⬅️ أضف await هنا لتحميل البيانات من JSON Bin أولاً
+// بدء تحميل البيانات من السحابة
+loadData().then(() => {
     renderTransactions();
     updateBalanceDisplay();
-    renderDenominationsDisplay();
     checkDailyDeposit();
-    
-    // تشغيل الموسيقى إذا كانت مفعلة مسبقاً
-    const isMusicPlaying = localStorage.getItem('moneyBoxMusicPlaying') === 'true';
-    updateMusicButton(isMusicPlaying, isMusicPlaying);
-}
-
-init();
+    renderDenominationsDisplay();
+});
