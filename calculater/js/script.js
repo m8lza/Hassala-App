@@ -4,20 +4,26 @@ let TARGET_AMOUNT_ILS = 2100;
 const INITIAL_BALANCE_ILS = 610;
 const WEEKLY_DEPOSIT_AMOUNT = 10; 
 
+// 🔑🔑 مفاتيح JSON BIN (للمزامنة السحابية)
+const JSON_BIN_MASTER_KEY = '$2a$10$np91uaDDC04fn0CmrkkLEuJHtARztQXXCkGa6qBRLFGSIwiwGpdk2'; 
+const JSON_BIN_ID = '692c7f47d0ea881f4009d7d2';
+const JSON_BIN_URL = `https://api.jsonbin.io/v3/b/${JSON_BIN_ID}`;
+// 🔑🔑 نهاية مفاتيح JSON BIN
+
 // 💸 بيانات وإعدادات الفئات النقدية 💸
 const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 1, 0.5]; // فئات الشيكل
 let cashDenominations = {}; // لتخزين عدد الأوراق: {200: 0, 100: 0, ...} 
 
 // 🆕 مصفوفة الأيقونات للأوراق النقدية (لواجهة متطورة) 🆕
 const DENOMINATION_ICONS = {
-    200: '<i class="fas fa-money-bill-wave" style="color:#00bcd4;"></i>', // أزرق/سماوي
-    100: '<i class="fas fa-money-bill-wave" style="color:#4CAF50;"></i>', // أخضر
-    50: '<i class="fas fa-money-bill-wave" style="color:#ff9800;"></i>', // برتقالي
-    20: '<i class="fas fa-money-bill-wave" style="color:#E91E63;"></i>', // وردي/أحمر
-    10: '<i class="fas fa-coins" style="color:#FFEB3B;"></i>', // ذهبي (عملة)
-    5: '<i class="fas fa-coins" style="color:#9C27B0;"></i>', // بنفسجي (عملة)
-    1: '<i class="fas fa-coins" style="color:#795548;"></i>', // بني (عملة)
-    0.5: '<i class="fas fa-coins" style="color:#607D8B;"></i>', // رمادي (نصف شيكل)
+    200: '<i class="fas fa-money-bill-wave" style="color:#00bcd4;"></i>', 
+    100: '<i class="fas fa-money-bill-wave" style="color:#4CAF50;"></i>', 
+    50: '<i class="fas fa-money-bill-wave" style="color:#ff9800;"></i>', 
+    20: '<i class="fas fa-money-bill-wave" style="color:#E91E63;"></i>', 
+    10: '<i class="fas fa-coins" style="color:#FFEB3B;"></i>', 
+    5: '<i class="fas fa-coins" style="color:#9C27B0;"></i>', 
+    1: '<i class="fas fa-coins" style="color:#795548;"></i>', 
+    0.5: '<i class="fas fa-coins" style="color:#607D8B;"></i>', 
 };
 
 // عناصر الواجهة
@@ -80,6 +86,7 @@ let webhookUrl = '';
 // ==========================================================
 // وظائف الإشعارات (Discord Webhook) 
 // ==========================================================
+
 /**
  * @param {string} type نوع الإشعار: 'ADD', 'DELETE_TRANS', 'DELETE_WISH', 'GOAL_REACHED', 'DAILY_CHECK', 'TARGET_CHANGED', 'ADD_WISH'
  * @param {object} data بيانات الإشعار
@@ -181,10 +188,9 @@ function sendDiscordNotification(type, data = {}) {
     .then(response => {
         if (!response.ok) {
             console.error(`Failed to send Discord notification. Status: ${response.status} (Bad Request)`);
-            // رسالة إضافية لتوضيح المشكلة
-             console.error(`POST ${webhookUrl} net::ERR_ABORTED 400 (Bad Request)`);
+            console.error(`POST ${webhookUrl} net::ERR_ABORTED 400 (Bad Request)`);
         } else {
-             console.log('Discord notification sent successfully.');
+            console.log('Discord notification sent successfully.');
         }
     })
     .catch(error => {
@@ -192,9 +198,8 @@ function sendDiscordNotification(type, data = {}) {
     });
 }
 
-
 // ==========================================================
-// وظائف عامة (Helper Functions)
+// وظائف عامة و سحابية (Helper Functions & Cloud Sync)
 // ==========================================================
 
 function convertIlsToUsd(ils) {
@@ -227,8 +232,7 @@ function loadSettings() {
     volumeSlider.value = storedVolume;
     volumeValueEl.textContent = `${Math.round(parseFloat(storedVolume) * 100)}%`;
     
-    webhookUrl = localStorage.getItem('moneyBoxWebhookUrl') || '';
-    webhookUrlInput.value = webhookUrl;
+    // ⚠️ تم إزالة تحميل الـ Webhook من localStorage
 }
 
 function applyColorTheme(theme) {
@@ -247,13 +251,11 @@ function updateMusicButton(isPlaying, shouldPlayPause) {
         toggleMusicButton.className = 'button-red'; 
         
         if (shouldPlayPause) { 
-            // 🐛 حل مشكلة Autoplay blocked/File not found 
             musicElement.play().then(() => {
                 console.log("Music started playing successfully.");
             }).catch(error => {
                 console.error(`Error playing music (${error.name}):`, error);
                 
-                // إعادة الزر لوضع التشغيل في حالة الفشل
                 toggleMusicButton.innerHTML = 'تشغيل <i class="fas fa-play"></i>';
                 toggleMusicButton.className = 'button-green';
             });
@@ -268,31 +270,96 @@ function updateMusicButton(isPlaying, shouldPlayPause) {
     localStorage.setItem('moneyBoxMusicPlaying', isPlaying);
 }
 
-function loadData() {
+
+// 🌐 دالة الحفظ والمزامنة السحابية الجديدة (PUT) 
+async function syncDataToCloud() {
+    // ⚠️⚠️ تم إضافة رابط الـ Webhook إلى بيانات الحفظ السحابي ⚠️⚠️
+    const dataToSave = {
+        transactions: transactions,
+        wishlist: wishlist,
+        targetAmount: TARGET_AMOUNT_ILS,
+        webhookUrl: webhookUrl // ⬅️⬅️ NEW: حفظ رابط الويب هوك سحابياً
+    };
+
+    const response = await fetch(JSON_BIN_URL, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': JSON_BIN_MASTER_KEY 
+        },
+        body: JSON.stringify(dataToSave)
+    });
+
+    if (!response.ok) {
+        console.error('⚠️ فشل حفظ البيانات على السحابة!:', response.statusText);
+        // يمكنك وضع رسالة تنبيه مرئية هنا إذا أردت
+        return false;
+    }
+    console.log('Data synced to cloud successfully.');
+    return true;
+}
+
+// 🔄 دالة تحميل البيانات الجديدة (GET) 
+async function loadData() {
     loadTarget();
     loadSettings(); 
 
-    const storedTransactions = localStorage.getItem('moneyBoxTransactions');
-    const storedWishlist = localStorage.getItem('moneyBoxWishlist');
-
-    if (storedTransactions) {
-        transactions = JSON.parse(storedTransactions);
-    } else {
-        // إضافة الرصيد الأولي عند عدم وجود بيانات
-        transactions.push({
-            id: Date.now(),
-            date: new Date().toLocaleTimeString('ar-EG') + ' ' + new Date().toLocaleDateString('ar-EG'),
-            amountILS: INITIAL_BALANCE_ILS,
-            amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
-            note: 'رصيد أولي'
+    // 1. محاولة تحميل البيانات من JSON Bin
+    try {
+        const response = await fetch(JSON_BIN_URL, {
+            method: 'GET',
+            headers: {
+                'X-Master-Key': JSON_BIN_MASTER_KEY,
+                'X-Bin-Meta': false 
+            }
         });
-    }
-
-    if (storedWishlist) {
-        wishlist = JSON.parse(storedWishlist);
+        
+        if (response.ok) {
+            const cloudData = await response.json();
+            
+            // تحديث المتغيرات العالمية من البيانات السحابية
+            transactions = cloudData.transactions || [];
+            wishlist = cloudData.wishlist || [];
+            
+            // تحديث الهدف من السحابة، إذا لم يكن موجوداً نستخدم القيمة الافتراضية
+            TARGET_AMOUNT_ILS = parseFloat(cloudData.targetAmount) || TARGET_AMOUNT_ILS; 
+            
+            // ⬅️⬅️ NEW: تحميل رابط الويب هوك من السحابة
+            webhookUrl = cloudData.webhookUrl || ''; 
+            webhookUrlInput.value = webhookUrl; // تحديث حقل الإدخال في الواجهة
+            
+            // تحديث الهدف في localStorage أيضاً (لتحديث حقل الإدخال)
+            saveTarget(TARGET_AMOUNT_ILS); 
+            
+            console.log('Data loaded from cloud successfully.');
+        } else {
+            console.warn(`Failed to fetch data from JSON Bin (Status: ${response.status}). Using initial data or local storage fallback.`);
+            // إذا فشل التحميل، نستخدم البيانات الأولية
+             if (transactions.length === 0) {
+                 transactions.push({
+                     id: Date.now(),
+                     date: 'تحميل أولي',
+                     amountILS: INITIAL_BALANCE_ILS,
+                     amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
+                     note: 'رصيد أولي'
+                 });
+             }
+        }
+    } catch (error) {
+        console.error('Network or parsing error loading data:', error);
+        // في حالة وجود خطأ في الشبكة، استخدم البيانات الأولية
+        if (transactions.length === 0) {
+             transactions.push({
+                 id: Date.now(),
+                 date: 'تحميل أولي',
+                 amountILS: INITIAL_BALANCE_ILS,
+                 amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
+                 note: 'رصيد أولي (خطأ سحابي)'
+             });
+        }
     }
     
-    // تحميل فئات النقود
+    // 2. تحميل فئات النقود يبقى محلياً (باستخدام localStorage)
     const storedDenominations = localStorage.getItem('cashDenominations');
     if (storedDenominations) {
         cashDenominations = JSON.parse(storedDenominations);
@@ -302,12 +369,6 @@ function loadData() {
     }
 }
 
-function saveData() {
-    localStorage.setItem('moneyBoxTransactions', JSON.stringify(transactions));
-    localStorage.setItem('moneyBoxWishlist', JSON.stringify(wishlist));
-    // حفظ فئات النقود
-    localStorage.setItem('cashDenominations', JSON.stringify(cashDenominations));
-}
 
 function calculateTotalBalance() {
     let total = 0;
@@ -334,11 +395,10 @@ function addAmountToDenominations(amount) {
     });
 
     if (remainingAmount > 0.01) {
-        // يتم تجاهل المبالغ الصغيرة جداً (أقل من أصغر فئة)
         console.warn(`تم ترك مبلغ بسيط لا يغطي أصغر فئة: ${remainingAmount.toFixed(2)} ILS`);
     }
 
-    saveData();
+    localStorage.setItem('cashDenominations', JSON.stringify(cashDenominations)); // حفظ محلي فقط
     renderDenominationsDisplay();
     return addedCounts; // لإظهارها في الإشعار
 }
@@ -353,7 +413,7 @@ function calculateTotalDenominations() {
 }
 
 // دالة حذف معاملة (مع ملاحظة وحذف)
-function deleteTransaction(id) {
+async function deleteTransaction(id) {
     if (!confirm('هل أنت متأكد من حذف هذه المعاملة؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     
     const deletedTransaction = transactions.find(t => t.id === id); 
@@ -365,20 +425,20 @@ function deleteTransaction(id) {
         return; 
     }
     
-    // حذف فئات النقود المقابلة للمعاملة المحذوفة 
+    // حذف فئات النقود المقابلة للمعاملة المحذوفة (محلياً فقط)
     if (deletedTransaction.denominations) {
         for (const [denomination, count] of Object.entries(deletedTransaction.denominations)) {
-            // نتأكد أننا لا نذهب تحت الصفر
             cashDenominations[denomination] = Math.max(0, (cashDenominations[denomination] || 0) - count); 
         }
     }
+    localStorage.setItem('cashDenominations', JSON.stringify(cashDenominations));
 
     transactions = transactions.filter(t => t.id !== id);
     
-    saveData();
+    await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
     renderTransactions();
     updateBalanceDisplay();
-    renderDenominationsDisplay(); // تحديث عرض الفئات بعد الحذف
+    renderDenominationsDisplay(); 
     
     sendDiscordNotification('DELETE_TRANS', { 
         amount: deletedTransaction.amountILS, 
@@ -388,13 +448,13 @@ function deleteTransaction(id) {
 }
 
 // دالة حذف أمنية (مع Webhook)
-function deleteWishlistItem(id) {
+async function deleteWishlistItem(id) {
     if (!confirm('هل أنت متأكد من حذف هذه الأمنية؟')) return;
     
     const deletedWish = wishlist.find(w => w.id === id); 
     wishlist = wishlist.filter(w => w.id !== id);
     
-    saveData();
+    await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
     renderWishlist(calculateTotalBalance());
     updateWishlistSummary(calculateTotalBalance());
     
@@ -406,30 +466,48 @@ function deleteWishlistItem(id) {
     }
 }
 
-function resetAllData() {
-    if (!confirm('تحذير! هل أنت متأكد من إعادة ضبط كل البيانات (الإيداعات والأمنيات)؟ هذا سيحذف كل شيء!')) return;
+// 🔥 دالة إعادة ضبط البيانات الجديدة (Reset All Data)
+async function resetAllData() {
+    if (!confirm('تحذير! هل أنت متأكد من إعادة ضبط كل البيانات (الإيداعات والأمنيات)؟ هذا سيحذف كل شيء وسيطبق على جميع الأجهزة!')) return;
 
-    localStorage.removeItem('moneyBoxTransactions');
-    localStorage.removeItem('moneyBoxWishlist');
+    // 1. مسح البيانات المحلية الأخرى (التي لا تتم مزامنتها)
     localStorage.removeItem('lastDepositCheck');
     localStorage.removeItem('moneyBoxTarget'); 
-    localStorage.removeItem('moneyBoxWebhookUrl'); 
     localStorage.removeItem('goalReached');
     localStorage.removeItem('cashDenominations'); // حذف الفئات النقدية 
 
+    // 2. إعادة تعيين البيانات في الذاكرة
     TARGET_AMOUNT_ILS = 2100; 
     transactions = [];
     wishlist = [];
-    webhookUrl = ''; 
-    loadData(); 
+    webhookUrl = '';
     
-    renderTransactions();
-    updateBalanceDisplay();
-    renderDenominationsDisplay(); // تحديث عرض الفئات
-    alert('تم إعادة ضبط جميع البيانات بنجاح.');
+    // 3. إنشاء المعاملة الأولية الجديدة
+    const initialTransaction = {
+        id: Date.now(),
+        date: 'رصيد أولي (إعادة تعيين)',
+        amountILS: INITIAL_BALANCE_ILS,
+        amountUSD: convertIlsToUsd(INITIAL_BALANCE_ILS),
+        note: 'رصيد أولي'
+    };
+    transactions.push(initialTransaction); 
+    
+    // 4. إرسال حالة "الإعادة" إلى السحابة للمزامنة
+    const success = await syncDataToCloud(); 
+
+    if (success) {
+        // 5. تحديث الواجهة عند النجاح
+        loadTarget(); // إعادة تعيين الهدف
+        renderTransactions();
+        updateBalanceDisplay();
+        renderDenominationsDisplay(); 
+        alert('تم إعادة ضبط جميع البيانات بنجاح ومزامنتها على جميع الأجهزة.');
+    } else {
+        alert('⚠️ فشلت عملية إعادة التعيين على السحابة. يرجى مراجعة إعدادات JSON Bin والمحاولة مجدداً.');
+    }
 }
 
-function addAutomaticTransaction(amountIls, note) {
+async function addAutomaticTransaction(amountIls, note) {
     const addedDenominations = addAmountToDenominations(amountIls); // إضافة الفئات 
     
     const newTransaction = {
@@ -442,7 +520,7 @@ function addAutomaticTransaction(amountIls, note) {
     };
 
     transactions.push(newTransaction);
-    saveData();
+    await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
     renderTransaction(newTransaction);
     const currentTotal = calculateTotalBalance();
     updateBalanceDisplay();
@@ -512,7 +590,7 @@ function updateBalanceDisplay() {
         sendDiscordNotification('GOAL_REACHED', { currentTotal: totalIls, target: TARGET_AMOUNT_ILS });
         localStorage.setItem('goalReached', TARGET_AMOUNT_ILS.toFixed(2)); 
     } else if (totalIls < TARGET_AMOUNT_ILS) {
-          localStorage.removeItem('goalReached');
+         localStorage.removeItem('goalReached');
     }
 
     checkTarget(totalIls);
@@ -712,7 +790,7 @@ denominationsEditForm.addEventListener('submit', (e) => {
         }
     });
 
-    saveData();
+    localStorage.setItem('cashDenominations', JSON.stringify(cashDenominations)); // حفظ محلي فقط
     renderDenominationsDisplay();
     // تحديث الرصيد الكلي بناءً على الأوراق الجديدة (هذا سيظهر التحذير إذا لم تتطابق الأرقام مع الرصيد الحقيقي)
     updateBalanceDisplay(); 
@@ -743,47 +821,46 @@ window.addEventListener('click', (e) => {
 });
 
 
-addTransactionForm.addEventListener('submit', (e) => {
+addTransactionForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     e.preventDefault(); 
     const amountIls = parseFloat(newAmountInput.value);
-    const noteText = transactionNoteInput.value.trim(); 
-    
+    const note = transactionNoteInput.value.trim() || 'إيداع نقدي';
+
     if (isNaN(amountIls) || amountIls <= 0) {
-        alert('الرجاء إدخال مبلغ صحيح وموجب.');
+        alert('الرجاء إدخال مبلغ صحيح.');
         return;
     }
     
-    // استدعاء دالة إضافة الفئات 
-    const addedDenominations = addAmountToDenominations(amountIls); 
+    const addedDenominations = addAmountToDenominations(amountIls); // إضافة الفئات 
 
     const newTransaction = {
         id: Date.now(),
         date: new Date().toLocaleTimeString('ar-EG') + ' ' + new Date().toLocaleDateString('ar-EG'),
         amountILS: amountIls,
         amountUSD: convertIlsToUsd(amountIls),
-        note: noteText,
-        denominations: addedDenominations // حفظ الفئات التي تم إيداعها 
+        note: note,
+        denominations: addedDenominations // حفظ الفئات 
     };
 
     transactions.push(newTransaction);
-    saveData();
-    renderTransaction(newTransaction);
-    const currentTotal = calculateTotalBalance();
-    updateBalanceDisplay(); 
-    
-    sendDiscordNotification('ADD', { amount: amountIls, note: noteText, addedDenominations: addedDenominations }); 
-    
+    await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
+
     newAmountInput.value = '';
     transactionNoteInput.value = '';
+    
+    renderTransaction(newTransaction);
+    updateBalanceDisplay();
+
+    sendDiscordNotification('ADD', { amount: amountIls, note: note, addedDenominations: addedDenominations });
 });
 
-// معالج إضافة أمنية 
-addWishForm.addEventListener('submit', (e) => {
+
+addWishForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     e.preventDefault();
     const name = wishItemNameInput.value.trim();
-    const priceIls = parseFloat(wishItemPriceInput.value);
+    const priceILS = parseFloat(wishItemPriceInput.value);
 
-    if (!name || isNaN(priceIls) || priceIls <= 0) {
+    if (!name || isNaN(priceILS) || priceILS <= 0) {
         alert('الرجاء إدخال اسم وسعر صحيح للأمنية.');
         return;
     }
@@ -791,77 +868,95 @@ addWishForm.addEventListener('submit', (e) => {
     const newWish = {
         id: Date.now(),
         name: name,
-        priceILS: priceIls,
-        priceUSD: convertIlsToUsd(priceIls)
+        priceILS: priceILS,
+        priceUSD: convertIlsToUsd(priceILS)
     };
 
     wishlist.push(newWish);
-    saveData();
-    renderWishlist(calculateTotalBalance());
-    updateWishlistSummary(calculateTotalBalance());
-    
-    sendDiscordNotification('ADD_WISH', { name: name, price: priceIls });
+    await syncDataToCloud(); // ⬅️ حفظ ومزامنة التغيير السحابي
 
     wishItemNameInput.value = '';
     wishItemPriceInput.value = '';
+
+    renderWishlist(calculateTotalBalance());
+    updateWishlistSummary(calculateTotalBalance());
+    sendDiscordNotification('ADD_WISH', { name: name, price: priceILS });
 });
 
-// معالج تغيير الهدف
-changeTargetForm.addEventListener('submit', (e) => {
+changeTargetForm.addEventListener('submit', async (e) => { // ⬅️ أصبحت async
     e.preventDefault();
     const newTarget = parseFloat(newTargetAmountInput.value);
-    
+
     if (isNaN(newTarget) || newTarget <= 0) {
-        alert('الرجاء إدخال مبلغ هدف صحيح وموجب.');
+        alert('الرجاء إدخال قيمة هدف صحيحة.');
         return;
     }
-
+    
     const oldTarget = TARGET_AMOUNT_ILS;
-    saveTarget(newTarget);
+
+    saveTarget(newTarget); // تحديث القيمة في المتغيرات و localStorage
+    
+    // يجب مزامنة الهدف الجديد سحابياً
+    await syncDataToCloud();
+
     updateBalanceDisplay();
     newTargetAmountInput.value = '';
-
+    
     sendDiscordNotification('TARGET_CHANGED', { oldTarget: oldTarget, newTarget: newTarget });
 });
 
 resetDataButton.addEventListener('click', resetAllData);
 
-// 🛠️ معالج زر تشغيل الموسيقى
-toggleMusicButton.addEventListener('click', () => {
-    const isPlaying = !musicElement.paused;
-    updateMusicButton(!isPlaying, true);
-});
 
-// 🛠️ معالج شريط التحكم بالصوت
-volumeSlider.addEventListener('input', (e) => {
-    const newVolume = parseFloat(e.target.value);
-    musicElement.volume = newVolume;
-    localStorage.setItem('moneyBoxVolume', newVolume);
-    volumeValueEl.textContent = `${Math.round(newVolume * 100)}%`;
-});
-
-// 🛠️ معالج حفظ رابط الـ Webhook
-saveWebhookButton.addEventListener('click', () => {
+// 🆕 معالج حفظ رابط الـ Webhook (حفظ سحابي) 🆕
+saveWebhookButton.addEventListener('click', async () => {
     const newWebhookUrl = webhookUrlInput.value.trim();
+    
+    if (!newWebhookUrl) {
+        alert('الرجاء إدخال رابط Webhook صالح.');
+        return;
+    }
+    
     webhookUrl = newWebhookUrl;
-    localStorage.setItem('moneyBoxWebhookUrl', newWebhookUrl);
-    alert('تم حفظ رابط الـ Webhook بنجاح.');
+    
+    // حفظ رابط الـ Webhook سحابياً عبر دالة المزامنة
+    const success = await syncDataToCloud(); 
+
+    if (success) {
+        alert('تم حفظ رابط الـ Webhook بنجاح ومزامنته على جميع الأجهزة.');
+    } else {
+        alert('⚠️ فشل حفظ رابط الـ Webhook على السحابة. يرجى مراجعة console.');
+    }
 });
 
-// 🛠️ معالج تغيير الثيم
+
+// معالج تغيير لون الخلفية
 bgColorSelect.addEventListener('change', (e) => {
     applyColorTheme(e.target.value);
 });
 
+// معالج تشغيل/إيقاف الموسيقى
+toggleMusicButton.addEventListener('click', () => {
+    const isPlaying = musicElement.paused;
+    updateMusicButton(isPlaying, true);
+});
 
-function init() {
-    loadData();
+// معالج تغيير مستوى الصوت
+volumeSlider.addEventListener('input', () => {
+    musicElement.volume = volumeSlider.value;
+    volumeValueEl.textContent = `${Math.round(parseFloat(volumeSlider.value) * 100)}%`;
+    localStorage.setItem('moneyBoxVolume', volumeSlider.value);
+});
+
+
+// ==========================================================
+// التهيئية (Initialization)
+// ==========================================================
+
+// بدء تحميل البيانات من السحابة
+loadData().then(() => {
     renderTransactions();
     updateBalanceDisplay();
-    checkDailyDeposit(); 
-    // تشغيل دالة عرض الفئات عند بدء التشغيل 
-    renderDenominationsDisplay(); 
-}
-
-
-init();
+    checkDailyDeposit();
+    renderDenominationsDisplay();
+});
